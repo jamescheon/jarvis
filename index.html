@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>J.A.R.V.I.S.</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    height: 100%;
+    font-family: 'Segoe UI', -apple-system, sans-serif;
+    background: radial-gradient(ellipse at center, #001a2e 0%, #000308 100%);
+    color: #7ee8fa;
+    overflow-x: hidden;
+  }
+  body {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 30px 20px 40px;
+    min-height: 100vh;
+  }
+  h1 {
+    font-family: 'Consolas', 'Courier New', monospace;
+    letter-spacing: 12px;
+    font-size: 22px;
+    color: #7ee8fa;
+    text-shadow: 0 0 20px #00d4ff, 0 0 40px #00d4ff;
+    margin-bottom: 8px;
+  }
+  .subtitle {
+    font-family: 'Consolas', monospace;
+    font-size: 11px;
+    letter-spacing: 4px;
+    color: #4a90a4;
+    margin-bottom: 30px;
+  }
+  #orb-wrap {
+    position: relative;
+    width: 240px;
+    height: 240px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 20px 0;
+  }
+  #orb {
+    width: 180px;
+    height: 180px;
+    border-radius: 50%;
+    background: radial-gradient(circle at 30% 30%, #7ee8fa 0%, #00d4ff 25%, #0066aa 60%, #001a33 100%);
+    box-shadow:
+      0 0 60px rgba(0, 212, 255, 0.6),
+      inset 0 0 40px rgba(0, 100, 200, 0.4);
+    transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+    cursor: pointer;
+    position: relative;
+    overflow: hidden;
+  }
+  #orb::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(circle at 70% 70%, rgba(255,255,255,0.15), transparent 50%);
+    border-radius: 50%;
+  }
+  #orb.listening {
+    animation: listen-pulse 1.4s ease-in-out infinite;
+    box-shadow: 0 0 80px #00d4ff, 0 0 120px rgba(0, 212, 255, 0.5);
+  }
+  #orb.thinking {
+    background: radial-gradient(circle at 30% 30%, #ffcc80 0%, #ffa500 30%, #663300 100%);
+    animation: think-spin 1.2s linear infinite;
+    box-shadow: 0 0 80px rgba(255, 165, 0, 0.7);
+  }
+  #orb.speaking {
+    background: radial-gradient(circle at 30% 30%, #a0f0ff 0%, #00e5ff 25%, #007799 100%);
+    animation: speak-pulse 0.35s ease-in-out infinite;
+  }
+  @keyframes listen-pulse {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.08); }
+  }
+  @keyframes speak-pulse {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.05); }
+  }
+  @keyframes think-spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+  }
+  .ring {
+    position: absolute;
+    border-radius: 50%;
+    border: 1px solid rgba(0, 212, 255, 0.3);
+    pointer-events: none;
+  }
+  .ring.r1 { width: 210px; height: 210px; animation: ring-rot 8s linear infinite; }
+  .ring.r2 { width: 240px; height: 240px; animation: ring-rot 12s linear infinite reverse; border-style: dashed; }
+  @keyframes ring-rot {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+  }
+  #status {
+    font-family: 'Consolas', monospace;
+    font-size: 14px;
+    letter-spacing: 2px;
+    margin-top: 24px;
+    min-height: 22px;
+    color: #7ee8fa;
+    text-shadow: 0 0 10px rgba(0, 212, 255, 0.5);
+  }
+  #toggle {
+    margin-top: 24px;
+    background: transparent;
+    color: #7ee8fa;
+    border: 1px solid #00d4ff;
+    padding: 12px 40px;
+    font-family: 'Consolas', monospace;
+    font-size: 13px;
+    letter-spacing: 3px;
+    cursor: pointer;
+    transition: all 0.2s;
+    text-shadow: 0 0 6px rgba(0, 212, 255, 0.5);
+  }
+  #toggle:hover {
+    background: rgba(0, 212, 255, 0.1);
+    box-shadow: 0 0 20px rgba(0, 212, 255, 0.3);
+  }
+  #toggle.on {
+    color: #ff6b6b;
+    border-color: #ff6b6b;
+    text-shadow: 0 0 6px rgba(255, 107, 107, 0.5);
+  }
+  #toggle.on:hover {
+    background: rgba(255, 107, 107, 0.1);
+    box-shadow: 0 0 20px rgba(255, 107, 107, 0.3);
+  }
+  #log {
+    width: 100%;
+    max-width: 640px;
+    margin-top: 30px;
+    font-family: 'Consolas', 'Malgun Gothic', sans-serif;
+    font-size: 14px;
+    line-height: 1.6;
+  }
+  .msg {
+    margin: 10px 0;
+    padding: 10px 16px;
+    border-radius: 4px;
+    animation: fade-in 0.3s ease-out;
+  }
+  @keyframes fade-in {
+    from { opacity: 0; transform: translateY(6px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  .msg.user {
+    background: rgba(0, 212, 255, 0.08);
+    border-left: 2px solid #00d4ff;
+    color: #a0e8ff;
+  }
+  .msg.jarvis {
+    background: rgba(255, 165, 0, 0.06);
+    border-left: 2px solid #ffa500;
+    color: #ffcc80;
+  }
+  .msg .who {
+    font-size: 10px;
+    letter-spacing: 2px;
+    opacity: 0.7;
+    margin-bottom: 4px;
+    font-family: 'Consolas', monospace;
+  }
+  #hint {
+    font-family: 'Consolas', monospace;
+    font-size: 11px;
+    color: #4a90a4;
+    margin-top: 12px;
+    text-align: center;
+    line-height: 1.6;
+  }
+</style>
+</head>
+<body>
+
+<h1>J.A.R.V.I.S.</h1>
+<div class="subtitle">JUST · A · RATHER · VERY · INTELLIGENT · SYSTEM</div>
+
+<div id="orb-wrap">
+  <div class="ring r1"></div>
+  <div class="ring r2"></div>
+  <div id="orb"></div>
+</div>
+
+<div id="status">시스템 대기 중</div>
+<button id="toggle">SYSTEM ONLINE</button>
+<div id="hint">
+  ※ Chrome / Edge 브라우저에서 최적 동작<br>
+  ※ 마이크 권한을 허용해주세요
+</div>
+
+<div id="log"></div>
+
+<script>
+(() => {
+  const orb = document.getElementById('orb');
+  const statusEl = document.getElementById('status');
+  const log = document.getElementById('log');
+  const toggle = document.getElementById('toggle');
+
+  let recognition = null;
+  let isActive = false;
+  let messages = [];
+
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) {
+    statusEl.textContent = '이 브라우저는 음성 인식 미지원';
+    toggle.disabled = true;
+    toggle.style.opacity = 0.4;
+  }
+
+  function setState(state, text) {
+    orb.className = state || '';
+    if (text !== undefined) statusEl.textContent = text;
+  }
+
+  function addLog(who, text) {
+    const div = document.createElement('div');
+    div.className = 'msg ' + who;
+    div.innerHTML = `<div class="who">${who === 'user' ? '선생님' : 'J.A.R.V.I.S.'}</div>${escapeHtml(text)}`;
+    log.appendChild(div);
+    div.scrollIntoView({ behavior: 'smooth', block: 'end' });
+  }
+
+  function escapeHtml(s) {
+    return s.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  }
+
+  function pickKoreanVoice() {
+    const voices = speechSynthesis.getVoices();
+    // Priority: Microsoft neural Korean > any Korean
+    return voices.find(v => v.lang.startsWith('ko') && /neural|natural/i.test(v.name))
+        || voices.find(v => v.lang.startsWith('ko'))
+        || null;
+  }
+
+  function speak(text) {
+    return new Promise((resolve) => {
+      setState('speaking', '응답 중');
+      const utter = new SpeechSynthesisUtterance(text);
+      utter.lang = 'ko-KR';
+      utter.rate = 1.05;
+      utter.pitch = 0.85;
+      utter.volume = 1.0;
+      const koVoice = pickKoreanVoice();
+      if (koVoice) utter.voice = koVoice;
+      utter.onend = () => resolve();
+      utter.onerror = () => resolve();
+      speechSynthesis.cancel();
+      speechSynthesis.speak(utter);
+    });
+  }
+
+  async function sendToClaude(userText) {
+    setState('thinking', '처리 중');
+    messages.push({ role: 'user', content: userText });
+    try {
+      const r = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messages }),
+      });
+      const data = await r.json();
+      if (data.error) throw new Error(data.error);
+      const reply = data.reply;
+      messages.push({ role: 'assistant', content: reply });
+      addLog('jarvis', reply);
+      await speak(reply);
+    } catch (e) {
+      const errMsg = '죄송합니다 선생님, 시스템에 오류가 발생했습니다.';
+      addLog('jarvis', errMsg + ' (' + e.message + ')');
+      await speak(errMsg);
+    }
+    if (isActive) startListening();
+  }
+
+  function startListening() {
+    if (!SR || !isActive) return;
+    try {
+      recognition = new SR();
+      recognition.lang = 'ko-KR';
+      recognition.continuous = false;
+      recognition.interimResults = false;
+      recognition.maxAlternatives = 1;
+
+      recognition.onstart = () => setState('listening', '듣고 있습니다');
+      recognition.onresult = (e) => {
+        const text = e.results[0][0].transcript.trim();
+        if (!text) {
+          if (isActive) setTimeout(startListening, 300);
+          return;
+        }
+        addLog('user', text);
+        // 종료 명령
+        if (/(잘\s*자|잘가|시스템\s*종료|자비스\s*(꺼|끝))/i.test(text)) {
+          stopSystem();
+          speak('네, 편히 쉬십시오 선생님.');
+          return;
+        }
+        sendToClaude(text);
+      };
+      recognition.onerror = (e) => {
+        if (e.error === 'no-speech' || e.error === 'aborted') {
+          if (isActive) setTimeout(startListening, 400);
+        } else if (e.error === 'not-allowed') {
+          setState('', '마이크 권한이 필요합니다');
+          stopSystem();
+        } else {
+          setState('', '오류: ' + e.error);
+          if (isActive) setTimeout(startListening, 1000);
+        }
+      };
+      recognition.onend = () => {
+        // 자동 재시작은 onresult/onerror에서 처리
+      };
+      recognition.start();
+    } catch (e) {
+      setState('', '음성 인식 시작 실패');
+    }
+  }
+
+  function stopSystem() {
+    isActive = false;
+    toggle.textContent = 'SYSTEM ONLINE';
+    toggle.classList.remove('on');
+    if (recognition) {
+      try { recognition.abort(); } catch(_) {}
+      recognition = null;
+    }
+    speechSynthesis.cancel();
+    setState('', '시스템 오프라인');
+  }
+
+  toggle.addEventListener('click', async () => {
+    if (!isActive) {
+      isActive = true;
+      toggle.textContent = 'SYSTEM OFFLINE';
+      toggle.classList.add('on');
+      const greeting = '자비스, 시스템 온라인. 무엇을 도와드릴까요, 선생님.';
+      addLog('jarvis', greeting);
+      await speak(greeting);
+      startListening();
+    } else {
+      stopSystem();
+    }
+  });
+
+  // Voices 프리로드 (Chrome은 비동기 로드)
+  if (typeof speechSynthesis !== 'undefined') {
+    speechSynthesis.getVoices();
+    speechSynthesis.onvoiceschanged = () => speechSynthesis.getVoices();
+  }
+})();
+</script>
+</body>
+</html>
