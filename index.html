@@ -117,12 +117,18 @@
     color: #7ee8fa;
     text-shadow: 0 0 10px rgba(0, 212, 255, 0.5);
   }
-  #toggle {
+  .button-row {
     margin-top: 24px;
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  #toggle {
     background: transparent;
     color: #7ee8fa;
     border: 1px solid #00d4ff;
-    padding: 12px 40px;
+    padding: 12px 32px;
     font-family: 'Consolas', monospace;
     font-size: 13px;
     letter-spacing: 3px;
@@ -142,6 +148,26 @@
   #toggle.on:hover {
     background: rgba(255, 107, 107, 0.1);
     box-shadow: 0 0 20px rgba(255, 107, 107, 0.3);
+  }
+  #wake-toggle {
+    background: transparent;
+    color: #6b95a4;
+    border: 1px solid #3a6a7a;
+    padding: 12px 22px;
+    font-family: 'Consolas', monospace;
+    font-size: 12px;
+    letter-spacing: 2px;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  #wake-toggle:hover {
+    background: rgba(0, 212, 255, 0.05);
+  }
+  #wake-toggle.on {
+    color: #7dffb3;
+    border-color: #7dffb3;
+    text-shadow: 0 0 6px rgba(125, 255, 179, 0.5);
+    box-shadow: 0 0 15px rgba(125, 255, 179, 0.2);
   }
   #log {
     width: 100%;
@@ -200,10 +226,14 @@
 </div>
 
 <div id="status">시스템 대기 중</div>
-<button id="toggle">SYSTEM ONLINE</button>
+<div class="button-row">
+  <button id="toggle">SYSTEM ONLINE</button>
+  <button id="wake-toggle">🎙️ 웨이크워드 OFF</button>
+</div>
 <div id="hint">
   ※ Chrome / Edge 브라우저에서 최적 동작<br>
-  ※ 마이크 권한을 허용해주세요
+  ※ 마이크 권한을 허용해주세요<br>
+  ※ 웨이크워드 ON: "자비스" 라고 부르면 응답
 </div>
 
 <div id="log"></div>
@@ -214,20 +244,37 @@
   const statusEl = document.getElementById('status');
   const log = document.getElementById('log');
   const toggle = document.getElementById('toggle');
-
-  let recognition = null;
-  let isActive = false;
-  let messages = [];
+  const wakeToggle = document.getElementById('wake-toggle');
 
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SR) {
     statusEl.textContent = '이 브라우저는 음성 인식 미지원';
     toggle.disabled = true;
     toggle.style.opacity = 0.4;
+    wakeToggle.disabled = true;
+    wakeToggle.style.opacity = 0.4;
   }
 
-  function setState(state, text) {
-    orb.className = state || '';
+  let recognition = null;
+  let isActive = false;
+  let wakeMode = false;
+  let awaitingCommand = false;
+  let commandTimeout = null;
+  let processing = false;
+  let wakeLock = null;
+  let audioCtx = null;
+  let messages = [];
+
+  const WAKE_RE = /(자비스|재비스|jarvis)\s*[야가는]?[,.!?\s]*(.*)/i;
+  const SHUTDOWN_RE = /(잘\s*자|잘가|시스템\s*종료|자비스\s*(꺼|끝|안녕))/i;
+
+  try {
+    wakeMode = localStorage.getItem('jarvis-wake') === '1';
+  } catch(_) {}
+  updateWakeUI();
+
+  function setState(cls, text) {
+    orb.className = cls || '';
     if (text !== undefined) statusEl.textContent = text;
   }
 
@@ -245,7 +292,6 @@
 
   function pickKoreanVoice() {
     const voices = speechSynthesis.getVoices();
-    // Priority: Microsoft neural Korean > any Korean
     return voices.find(v => v.lang.startsWith('ko') && /neural|natural/i.test(v.name))
         || voices.find(v => v.lang.startsWith('ko'))
         || null;
@@ -259,8 +305,8 @@
       utter.rate = 1.05;
       utter.pitch = 0.85;
       utter.volume = 1.0;
-      const koVoice = pickKoreanVoice();
-      if (koVoice) utter.voice = koVoice;
+      const kv = pickKoreanVoice();
+      if (kv) utter.voice = kv;
       utter.onend = () => resolve();
       utter.onerror = () => resolve();
       speechSynthesis.cancel();
@@ -268,7 +314,50 @@
     });
   }
 
+  function beep(freq = 880, ms = 120) {
+    try {
+      if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.frequency.value = freq;
+      osc.type = 'sine';
+      gain.gain.value = 0.15;
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
+      osc.start();
+      gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + ms / 1000);
+      osc.stop(audioCtx.currentTime + ms / 1000);
+    } catch(_) {}
+  }
+
+  async function requestWakeLock() {
+    try {
+      if ('wakeLock' in navigator) {
+        wakeLock = await navigator.wakeLock.request('screen');
+      }
+    } catch(_) {}
+  }
+
+  function releaseWakeLock() {
+    if (wakeLock) {
+      try { wakeLock.release(); } catch(_) {}
+      wakeLock = null;
+    }
+  }
+
+  document.addEventListener('visibilitychange', () => {
+    if (isActive && document.visibilityState === 'visible' && !wakeLock) {
+      requestWakeLock();
+    }
+  });
+
+  function idleStatus() {
+    if (awaitingCommand) return '명령을 말씀하세요';
+    return wakeMode ? '"자비스" 라고 불러주세요' : '듣고 있습니다';
+  }
+
   async function sendToClaude(userText) {
+    processing = true;
     setState('thinking', '처리 중');
     messages.push({ role: 'user', content: userText });
     try {
@@ -284,67 +373,122 @@
       addLog('jarvis', reply);
       await speak(reply);
     } catch (e) {
-      const errMsg = '죄송합니다 선생님, 시스템에 오류가 발생했습니다.';
-      addLog('jarvis', errMsg + ' (' + e.message + ')');
-      await speak(errMsg);
+      const err = '죄송합니다 선생님, 시스템에 오류가 발생했습니다.';
+      addLog('jarvis', err + ' (' + e.message + ')');
+      await speak(err);
     }
+    processing = false;
     if (isActive) startListening();
   }
 
+  function abortRecognition() {
+    if (recognition) {
+      try { recognition.abort(); } catch(_) {}
+      recognition = null;
+    }
+  }
+
   function startListening() {
-    if (!SR || !isActive) return;
+    if (!SR || !isActive || processing) return;
+    abortRecognition();
     try {
       recognition = new SR();
       recognition.lang = 'ko-KR';
-      recognition.continuous = false;
+      recognition.continuous = wakeMode;
       recognition.interimResults = false;
       recognition.maxAlternatives = 1;
 
-      recognition.onstart = () => setState('listening', '듣고 있습니다');
-      recognition.onresult = (e) => {
-        const text = e.results[0][0].transcript.trim();
-        if (!text) {
-          if (isActive) setTimeout(startListening, 300);
-          return;
+      recognition.onstart = () => setState('listening', idleStatus());
+
+      recognition.onresult = async (e) => {
+        let text = '';
+        for (let i = e.resultIndex; i < e.results.length; i++) {
+          if (e.results[i].isFinal) {
+            text = e.results[i][0].transcript.trim();
+          }
         }
-        addLog('user', text);
-        // 종료 명령
-        if (/(잘\s*자|잘가|시스템\s*종료|자비스\s*(꺼|끝))/i.test(text)) {
+        if (!text) return;
+
+        // Shutdown: works in any mode
+        if (SHUTDOWN_RE.test(text)) {
+          addLog('user', text);
+          abortRecognition();
+          await speak('네, 편히 쉬십시오 선생님.');
           stopSystem();
-          speak('네, 편히 쉬십시오 선생님.');
           return;
         }
-        sendToClaude(text);
+
+        // Manual mode: every utterance is a command
+        if (!wakeMode) {
+          addLog('user', text);
+          abortRecognition();
+          await sendToClaude(text);
+          return;
+        }
+
+        // Wake mode
+        if (awaitingCommand) {
+          clearTimeout(commandTimeout);
+          awaitingCommand = false;
+          addLog('user', text);
+          abortRecognition();
+          await sendToClaude(text);
+          return;
+        }
+
+        // Look for wake word
+        const m = text.match(WAKE_RE);
+        if (!m) return; // ignore, keep listening
+
+        beep(880, 120);
+        addLog('user', text);
+        const inlineCommand = (m[2] || '').trim();
+
+        if (inlineCommand) {
+          abortRecognition();
+          await sendToClaude(inlineCommand);
+        } else {
+          abortRecognition();
+          await speak('네, 선생님?');
+          awaitingCommand = true;
+          commandTimeout = setTimeout(() => {
+            awaitingCommand = false;
+            if (isActive) setState('listening', idleStatus());
+          }, 8000);
+          startListening();
+        }
       };
+
       recognition.onerror = (e) => {
-        if (e.error === 'no-speech' || e.error === 'aborted') {
-          if (isActive) setTimeout(startListening, 400);
-        } else if (e.error === 'not-allowed') {
+        if (e.error === 'not-allowed') {
           setState('', '마이크 권한이 필요합니다');
           stopSystem();
-        } else {
-          setState('', '오류: ' + e.error);
-          if (isActive) setTimeout(startListening, 1000);
         }
       };
+
       recognition.onend = () => {
-        // 자동 재시작은 onresult/onerror에서 처리
+        // Browser may auto-stop after silence; restart if still active
+        setTimeout(() => {
+          if (isActive && !processing && !recognition) startListening();
+        }, 300);
       };
+
       recognition.start();
-    } catch (e) {
+    } catch (err) {
       setState('', '음성 인식 시작 실패');
     }
   }
 
   function stopSystem() {
     isActive = false;
+    processing = false;
+    awaitingCommand = false;
+    clearTimeout(commandTimeout);
     toggle.textContent = 'SYSTEM ONLINE';
     toggle.classList.remove('on');
-    if (recognition) {
-      try { recognition.abort(); } catch(_) {}
-      recognition = null;
-    }
+    abortRecognition();
     speechSynthesis.cancel();
+    releaseWakeLock();
     setState('', '시스템 오프라인');
   }
 
@@ -353,7 +497,11 @@
       isActive = true;
       toggle.textContent = 'SYSTEM OFFLINE';
       toggle.classList.add('on');
-      const greeting = '자비스, 시스템 온라인. 무엇을 도와드릴까요, 선생님.';
+      requestWakeLock();
+      try { beep(400, 30); } catch(_) {}  // warm up audio context
+      const greeting = wakeMode
+        ? '자비스 대기 모드입니다. "자비스" 라고 불러주십시오, 선생님.'
+        : '자비스, 시스템 온라인. 무엇을 도와드릴까요, 선생님.';
       addLog('jarvis', greeting);
       await speak(greeting);
       startListening();
@@ -362,7 +510,28 @@
     }
   });
 
-  // Voices 프리로드 (Chrome은 비동기 로드)
+  wakeToggle.addEventListener('click', () => {
+    wakeMode = !wakeMode;
+    try { localStorage.setItem('jarvis-wake', wakeMode ? '1' : '0'); } catch(_) {}
+    updateWakeUI();
+    awaitingCommand = false;
+    clearTimeout(commandTimeout);
+    if (isActive) {
+      abortRecognition();
+      setTimeout(startListening, 200);
+    }
+  });
+
+  function updateWakeUI() {
+    if (wakeMode) {
+      wakeToggle.textContent = '🎙️ 웨이크워드 ON';
+      wakeToggle.classList.add('on');
+    } else {
+      wakeToggle.textContent = '🎙️ 웨이크워드 OFF';
+      wakeToggle.classList.remove('on');
+    }
+  }
+
   if (typeof speechSynthesis !== 'undefined') {
     speechSynthesis.getVoices();
     speechSynthesis.onvoiceschanged = () => speechSynthesis.getVoices();
