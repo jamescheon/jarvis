@@ -356,6 +356,56 @@
     return wakeMode ? '"자비스" 라고 불러주세요' : '듣고 있습니다';
   }
 
+  const APP_LINKS = {
+    '유튜브': { scheme: 'vnd.youtube://', web: 'https://www.youtube.com' },
+    '스포티파이': { scheme: 'spotify://', web: 'https://open.spotify.com' },
+    '카카오톡': { scheme: 'kakaotalk://', web: 'https://www.kakaocorp.com' },
+    '인스타그램': { scheme: 'instagram://app', web: 'https://www.instagram.com' },
+    '넷플릭스': { scheme: 'nflx://', web: 'https://www.netflix.com' },
+    '지도': { scheme: 'nmap://', web: 'https://map.naver.com' },
+    '네이버지도': { scheme: 'nmap://', web: 'https://map.naver.com' },
+    '네이버': { scheme: null, web: 'https://www.naver.com' },
+  };
+  const OPEN_APP_RE = /(네이버\s*지도|유튜브|스포티파이|카카오톡|인스타그램|넷플릭스|지도|네이버)\s*(?:좀)?\s*(?:열어|틀어|실행해|켜)\s*(?:줘|줄래|주세요)?\s*$/;
+
+  function openApp(name) {
+    const target = APP_LINKS[name];
+    if (!target) return false;
+    if (!target.scheme) {
+      window.open(target.web, '_blank');
+      return true;
+    }
+    const fallback = setTimeout(() => {
+      if (document.visibilityState === 'visible') window.open(target.web, '_blank');
+    }, 1200);
+    document.addEventListener('visibilitychange', function onVis() {
+      if (document.visibilityState === 'hidden') {
+        clearTimeout(fallback);
+        document.removeEventListener('visibilitychange', onVis);
+      }
+    });
+    window.location.href = target.scheme;
+    return true;
+  }
+
+  async function tryAppCommand(text) {
+    const m = text.match(OPEN_APP_RE);
+    if (!m) return false;
+    const name = m[1].replace(/\s+/g, '');
+    if (!openApp(name)) return false;
+    addLog('jarvis', `${name} 실행합니다, 선생님.`);
+    await speak(`${name} 실행합니다, 선생님.`);
+    return true;
+  }
+
+  async function handleCommand(userText) {
+    if (await tryAppCommand(userText)) {
+      if (isActive) startListening();
+      return;
+    }
+    await sendToClaude(userText);
+  }
+
   async function sendToClaude(userText) {
     processing = true;
     setState('thinking', '처리 중');
@@ -422,7 +472,7 @@
         if (!wakeMode) {
           addLog('user', text);
           abortRecognition();
-          await sendToClaude(text);
+          await handleCommand(text);
           return;
         }
 
@@ -432,7 +482,7 @@
           awaitingCommand = false;
           addLog('user', text);
           abortRecognition();
-          await sendToClaude(text);
+          await handleCommand(text);
           return;
         }
 
@@ -446,7 +496,7 @@
 
         if (inlineCommand) {
           abortRecognition();
-          await sendToClaude(inlineCommand);
+          await handleCommand(inlineCommand);
         } else {
           abortRecognition();
           await speak('네, 선생님?');
