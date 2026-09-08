@@ -460,14 +460,19 @@
       };
 
       recognition.onerror = (e) => {
-        if (e.error === 'not-allowed') {
+        if (e.error === 'not-allowed' || e.error === 'service-not-allowed') {
           setState('', '마이크 권한이 필요합니다');
           stopSystem();
         }
+        // other errors (no-speech, network, aborted, audio-capture) are
+        // recoverable — onend fires right after and restarts listening
       };
 
       recognition.onend = () => {
-        // Browser may auto-stop after silence; restart if still active
+        // Mobile browsers auto-stop the session after a short silence
+        // (much sooner than desktop), so this fires constantly — always
+        // clear the stale instance and restart if the system is still on.
+        recognition = null;
         setTimeout(() => {
           if (isActive && !processing && !recognition) startListening();
         }, 300);
@@ -535,6 +540,10 @@
   if (typeof speechSynthesis !== 'undefined') {
     speechSynthesis.getVoices();
     speechSynthesis.onvoiceschanged = () => speechSynthesis.getVoices();
+  }
+
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('/sw.js').catch(() => {});
   }
 })();
 </script>

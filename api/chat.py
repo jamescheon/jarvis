@@ -10,6 +10,7 @@ STATIC_FILES = {
     "/index.html": ("index.html", "text/html; charset=utf-8"),
     "/manifest.json": ("manifest.json", "application/json; charset=utf-8"),
     "/icon.svg": ("icon.svg", "image/svg+xml"),
+    "/sw.js": ("sw.js", "application/javascript; charset=utf-8"),
 }
 
 SYSTEM_PROMPT = """당신은 아이언맨의 자비스(J.A.R.V.I.S.)입니다.

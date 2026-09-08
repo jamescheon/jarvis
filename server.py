@@ -7,6 +7,11 @@ from anthropic import Anthropic
 
 BASE_DIR = Path(__file__).parent
 INDEX_FILE = BASE_DIR / "index.html"
+STATIC_FILES = {
+    "/manifest.json": ("manifest.json", "application/json; charset=utf-8"),
+    "/icon.svg": ("icon.svg", "image/svg+xml"),
+    "/sw.js": ("sw.js", "application/javascript; charset=utf-8"),
+}
 
 client = Anthropic()
 
@@ -33,8 +38,18 @@ class JarvisHandler(BaseHTTPRequestHandler):
                 self._send(200, body, "text/html; charset=utf-8")
             except FileNotFoundError:
                 self._send(404, b"index.html not found", "text/plain; charset=utf-8")
-        else:
-            self._send(404, b"Not Found", "text/plain; charset=utf-8")
+            return
+
+        entry = STATIC_FILES.get(self.path)
+        if entry:
+            filename, content_type = entry
+            try:
+                body = (BASE_DIR / filename).read_bytes()
+                self._send(200, body, content_type)
+                return
+            except FileNotFoundError:
+                pass
+        self._send(404, b"Not Found", "text/plain; charset=utf-8")
 
     def do_POST(self):
         if self.path != "/api/chat":
