@@ -297,7 +297,15 @@
         || null;
   }
 
+  let lastSpokenNorm = '';
+  let lastSpokenAt = 0;
+  function normalizeForEcho(s) {
+    return s.replace(/[^\p{L}\p{N}]/gu, '').toLowerCase();
+  }
+
   function speak(text) {
+    lastSpokenNorm = normalizeForEcho(text);
+    lastSpokenAt = Date.now();
     return new Promise((resolve) => {
       setState('speaking', '응답 중');
       const utter = new SpeechSynthesisUtterance(text);
@@ -307,8 +315,12 @@
       utter.volume = 1.0;
       const kv = pickKoreanVoice();
       if (kv) utter.voice = kv;
-      utter.onend = () => resolve();
-      utter.onerror = () => resolve();
+      // Small cooldown after TTS ends before the mic goes back on, so the
+      // speaker's own tail/echo isn't picked up as a fresh command (phones
+      // especially, where speaker and mic sit right next to each other).
+      const finish = () => setTimeout(resolve, 700);
+      utter.onend = finish;
+      utter.onerror = finish;
       speechSynthesis.cancel();
       speechSynthesis.speak(utter);
     });
@@ -458,6 +470,15 @@
           }
         }
         if (!text) return;
+
+        // Echo guard: right after we speak, ignore anything that's basically
+        // us hearing our own TTS bleed back through the mic (speaker
+        // feedback) - limited to a short window so it can't shadow later,
+        // unrelated conversation that happens to share a phrase
+        const norm = normalizeForEcho(text);
+        if (Date.now() - lastSpokenAt < 4000 && lastSpokenNorm && norm.length > 3 && lastSpokenNorm.includes(norm)) {
+          return;
+        }
 
         // Shutdown: works in any mode
         if (SHUTDOWN_RE.test(text)) {
