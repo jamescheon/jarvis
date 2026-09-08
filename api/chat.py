@@ -4,6 +4,8 @@ import json
 
 from anthropic import Anthropic
 
+import naver_ads
+
 BASE_DIR = Path(__file__).parent.parent
 STATIC_FILES = {
     "/": ("index.html", "text/html; charset=utf-8"),
@@ -19,9 +21,37 @@ SYSTEM_PROMPT = """당신은 아이언맨의 자비스(J.A.R.V.I.S.)입니다.
 - 답변은 항상 2~3문장 이내로 간결하게, 음성 대화에 자연스럽게 말합니다.
 - 사용자를 "선생님"이라고 부릅니다.
 - 이모지나 마크다운 기호(**, #, - 등)는 절대 사용하지 않습니다 (음성 출력이므로).
-- 최신 뉴스, 날씨, 실시간 정보 등 알고 있는 지식만으로 답할 수 없는 질문은 웹 검색을 사용해서 답합니다."""
+- 최신 뉴스, 날씨, 실시간 정보 등 알고 있는 지식만으로 답할 수 없는 질문은 웹 검색을 사용해서 답합니다.
+- 네이버 검색량/검색 순위를 물어보면 naver_search_volume 도구로 조회해서 답합니다."""
 
 SEARCH_TOOL = {"type": "web_search_20250305", "name": "web_search", "max_uses": 3}
+TOOLS = [SEARCH_TOOL, naver_ads.VOLUME_TOOL]
+TOOL_HANDLERS = {"naver_search_volume": lambda inp: naver_ads.search_volume(inp.get("keyword", ""))}
+
+
+def run_with_tools(client, messages):
+    # web_search resolves itself server-side; naver_search_volume is a
+    # client-side tool, so loop until Claude stops asking for one.
+    for _ in range(3):
+        resp = client.messages.create(
+            model="claude-sonnet-4-5",
+            max_tokens=800,
+            system=SYSTEM_PROMPT,
+            messages=messages,
+            tools=TOOLS,
+        )
+        if resp.stop_reason != "tool_use":
+            return resp
+        messages.append({"role": "assistant", "content": resp.content})
+        tool_results = [
+            {"type": "tool_result", "tool_use_id": block.id, "content": TOOL_HANDLERS[block.name](block.input)}
+            for block in resp.content
+            if block.type == "tool_use" and block.name in TOOL_HANDLERS
+        ]
+        if not tool_results:
+            return resp
+        messages.append({"role": "user", "content": tool_results})
+    return resp
 
 
 class handler(BaseHTTPRequestHandler):
@@ -63,13 +93,7 @@ class handler(BaseHTTPRequestHandler):
             messages = payload.get("messages", [])
 
             client = Anthropic()
-            resp = client.messages.create(
-                model="claude-sonnet-4-5",
-                max_tokens=800,
-                system=SYSTEM_PROMPT,
-                messages=messages,
-                tools=[SEARCH_TOOL],
-            )
+            resp = run_with_tools(client, messages)
             reply = "".join(b.text for b in resp.content if b.type == "text")
             out = json.dumps({"reply": reply}, ensure_ascii=False).encode("utf-8")
             self._send(200, out, "application/json; charset=utf-8")
