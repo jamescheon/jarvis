@@ -406,16 +406,16 @@
     if (!m) return false;
     const name = m[1].replace(/\s+/g, '');
     if (!openApp(name)) return false;
+    processing = true;
     addLog('jarvis', `${name} 실행합니다, 선생님.`);
     await speak(`${name} 실행합니다, 선생님.`);
+    processing = false;
+    if (isActive) startListening();
     return true;
   }
 
   async function handleCommand(userText) {
-    if (await tryAppCommand(userText)) {
-      if (isActive) startListening();
-      return;
-    }
+    if (await tryAppCommand(userText)) return;
     await sendToClaude(userText);
   }
 
@@ -479,6 +479,7 @@
         // Shutdown: works in any mode
         if (SHUTDOWN_RE.test(text)) {
           addLog('user', text);
+          processing = true;
           abortRecognition();
           await speak('네, 편히 쉬십시오 선생님.');
           stopSystem();
@@ -515,6 +516,7 @@
           abortRecognition();
           await handleCommand(inlineCommand);
         } else {
+          processing = true;
           abortRecognition();
           await speak('네, 선생님?');
           awaitingCommand = true;
@@ -522,6 +524,7 @@
             awaitingCommand = false;
             if (isActive) setState('listening', idleStatus());
           }, 8000);
+          processing = false;
           startListening();
         }
       };
