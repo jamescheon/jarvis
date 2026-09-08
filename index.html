@@ -297,15 +297,14 @@
         || null;
   }
 
-  let lastSpokenNorm = '';
-  let lastSpokenAt = 0;
-  function normalizeForEcho(s) {
-    return s.replace(/[^\p{L}\p{N}]/gu, '').toLowerCase();
-  }
+  // Deaf window: while the mic is reopening after TTS, real acoustic echo
+  // of our own voice (phone speaker bleeding into the phone mic) can come
+  // back through speech recognition as *different*, mis-transcribed text -
+  // so matching against what we said is unreliable. Instead, just ignore
+  // everything heard for a fixed period after we finish speaking.
+  let micDeafUntil = 0;
 
   function speak(text) {
-    lastSpokenNorm = normalizeForEcho(text);
-    lastSpokenAt = Date.now();
     return new Promise((resolve) => {
       setState('speaking', '응답 중');
       const utter = new SpeechSynthesisUtterance(text);
@@ -315,10 +314,12 @@
       utter.volume = 1.0;
       const kv = pickKoreanVoice();
       if (kv) utter.voice = kv;
-      // Small cooldown after TTS ends before the mic goes back on, so the
-      // speaker's own tail/echo isn't picked up as a fresh command (phones
-      // especially, where speaker and mic sit right next to each other).
-      const finish = () => setTimeout(resolve, 700);
+      const finish = () => {
+        // Mic stays off another 700ms, then ignores results for 1.2s more
+        // once it reopens - covers speaker/room echo decay on phones.
+        micDeafUntil = Date.now() + 700 + 1200;
+        setTimeout(resolve, 700);
+      };
       utter.onend = finish;
       utter.onerror = finish;
       speechSynthesis.cancel();
@@ -471,14 +472,9 @@
         }
         if (!text) return;
 
-        // Echo guard: right after we speak, ignore anything that's basically
-        // us hearing our own TTS bleed back through the mic (speaker
-        // feedback) - limited to a short window so it can't shadow later,
-        // unrelated conversation that happens to share a phrase
-        const norm = normalizeForEcho(text);
-        if (Date.now() - lastSpokenAt < 4000 && lastSpokenNorm && norm.length > 3 && lastSpokenNorm.includes(norm)) {
-          return;
-        }
+        // Ignore anything heard while still inside the post-TTS deaf window
+        // (see speak()) - this is almost always our own speaker echo
+        if (Date.now() < micDeafUntil) return;
 
         // Shutdown: works in any mode
         if (SHUTDOWN_RE.test(text)) {
@@ -575,9 +571,12 @@
       toggle.classList.add('on');
       requestWakeLock();
       try { beep(400, 30); } catch(_) {}  // warm up audio context
+      // Deliberately avoid saying the wake word here - the mic starts
+      // listening right after this plays, so any echo of our own voice
+      // saying "자비스" risks immediately re-triggering itself.
       const greeting = wakeMode
-        ? '자비스 대기 모드입니다. "자비스" 라고 불러주십시오, 선생님.'
-        : '자비스, 시스템 온라인. 무엇을 도와드릴까요, 선생님.';
+        ? '대기 모드입니다. 불러주시면 응답하겠습니다, 선생님.'
+        : '시스템 온라인. 무엇을 도와드릴까요, 선생님.';
       addLog('jarvis', greeting);
       await speak(greeting);
       startListening();
