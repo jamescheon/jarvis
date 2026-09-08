@@ -1,0 +1,7 @@
+server.py
+server.log
+실행.bat
+*.lnk
+__pycache__/
+*.pyc
+.git/

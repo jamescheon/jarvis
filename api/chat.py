@@ -1,7 +1,16 @@
 from http.server import BaseHTTPRequestHandler
+from pathlib import Path
 import json
 
 from anthropic import Anthropic
+
+BASE_DIR = Path(__file__).parent.parent
+STATIC_FILES = {
+    "/": ("index.html", "text/html; charset=utf-8"),
+    "/index.html": ("index.html", "text/html; charset=utf-8"),
+    "/manifest.json": ("manifest.json", "application/json; charset=utf-8"),
+    "/icon.svg": ("icon.svg", "image/svg+xml"),
+}
 
 SYSTEM_PROMPT = """당신은 아이언맨의 자비스(J.A.R.V.I.S.)입니다.
 - 한국어로만 대화합니다.
@@ -12,17 +21,37 @@ SYSTEM_PROMPT = """당신은 아이언맨의 자비스(J.A.R.V.I.S.)입니다.
 
 
 class handler(BaseHTTPRequestHandler):
-    def _cors(self):
+    def _send(self, status, body: bytes, content_type: str):
+        self.send_response(status)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(body)))
         self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Methods", "POST, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        self.end_headers()
+        self.wfile.write(body)
 
     def do_OPTIONS(self):
         self.send_response(204)
-        self._cors()
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type")
         self.end_headers()
 
+    def do_GET(self):
+        entry = STATIC_FILES.get(self.path)
+        if entry:
+            filename, content_type = entry
+            try:
+                body = (BASE_DIR / filename).read_bytes()
+                self._send(200, body, content_type)
+                return
+            except FileNotFoundError:
+                pass
+        self._send(404, b"Not Found", "text/plain; charset=utf-8")
+
     def do_POST(self):
+        if self.path != "/api/chat":
+            self._send(404, b"Not Found", "text/plain; charset=utf-8")
+            return
         try:
             length = int(self.headers.get("Content-Length", 0))
             body = self.rfile.read(length).decode("utf-8") if length else "{}"
@@ -38,18 +67,7 @@ class handler(BaseHTTPRequestHandler):
             )
             reply = resp.content[0].text
             out = json.dumps({"reply": reply}, ensure_ascii=False).encode("utf-8")
-
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json; charset=utf-8")
-            self.send_header("Content-Length", str(len(out)))
-            self._cors()
-            self.end_headers()
-            self.wfile.write(out)
+            self._send(200, out, "application/json; charset=utf-8")
         except Exception as exc:
             err = json.dumps({"error": str(exc)}, ensure_ascii=False).encode("utf-8")
-            self.send_response(500)
-            self.send_header("Content-Type", "application/json; charset=utf-8")
-            self.send_header("Content-Length", str(len(err)))
-            self._cors()
-            self.end_headers()
-            self.wfile.write(err)
+            self._send(500, err, "application/json; charset=utf-8")
