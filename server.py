@@ -1,6 +1,6 @@
 import json
 import os
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 from anthropic import Anthropic
@@ -78,7 +78,13 @@ def main():
     print(f"  (Chrome 또는 Edge 권장 — 음성 인식 지원)")
     print(f"  종료: Ctrl+C")
     print("=" * 60)
-    HTTPServer(("127.0.0.1", port), JarvisHandler).serve_forever()
+    server = ThreadingHTTPServer(("127.0.0.1", port), JarvisHandler)
+    server.daemon_threads = True
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        print("\n종료합니다.")
+        server.shutdown()
 
 
 if __name__ == "__main__":
