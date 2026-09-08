@@ -1,5 +1,6 @@
 import json
 import os
+import re
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -56,6 +57,14 @@ def run_with_tools(messages):
     return resp
 
 
+def extract_reply(resp):
+    text = "".join(b.text for b in resp.content if b.type == "text")
+    # web_search citations leave cite-tag markup in the response text -
+    # strip it, this is spoken aloud, not rendered as a web page.
+    text = re.sub(r'</?cite[^>]*>?', ' ', text)
+    return re.sub(r'\s+', ' ', text).strip()
+
+
 class JarvisHandler(BaseHTTPRequestHandler):
     def _send(self, status, body: bytes, content_type: str):
         self.send_response(status)
@@ -99,7 +108,7 @@ class JarvisHandler(BaseHTTPRequestHandler):
         messages = payload.get("messages", [])
         try:
             resp = run_with_tools(messages)
-            reply = "".join(b.text for b in resp.content if b.type == "text")
+            reply = extract_reply(resp)
             out = json.dumps({"reply": reply}, ensure_ascii=False).encode("utf-8")
             self._send(200, out, "application/json; charset=utf-8")
         except Exception as exc:
