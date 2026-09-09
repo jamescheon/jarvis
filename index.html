@@ -592,8 +592,8 @@
       // listening right after this plays, so any echo of our own voice
       // saying "자비스" risks immediately re-triggering itself.
       const greeting = wakeMode
-        ? '대기 모드입니다. 불러주시면 응답하겠습니다, 선생님.'
-        : '시스템 온라인. 무엇을 도와드릴까요, 선생님.';
+        ? '안녕하세요 대표님. 대기 모드입니다. 불러주시면 응답하겠습니다.'
+        : '안녕하세요 대표님. 무엇을 도와드릴까요.';
       addLog('jarvis', greeting);
       await speak(greeting);
       startListening();
