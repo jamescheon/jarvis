@@ -74,7 +74,8 @@ class JarvisHandler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_GET(self):
-        if self.path in ("/", "/index.html"):
+        path = self.path.split("?", 1)[0]
+        if path in ("/", "/index.html"):
             try:
                 body = INDEX_FILE.read_bytes()
                 self._send(200, body, "text/html; charset=utf-8")
@@ -82,7 +83,7 @@ class JarvisHandler(BaseHTTPRequestHandler):
                 self._send(404, b"index.html not found", "text/plain; charset=utf-8")
             return
 
-        entry = STATIC_FILES.get(self.path)
+        entry = STATIC_FILES.get(path)
         if entry:
             filename, content_type = entry
             try:

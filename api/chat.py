@@ -80,7 +80,8 @@ class handler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def do_GET(self):
-        entry = STATIC_FILES.get(self.path)
+        path = self.path.split("?", 1)[0]
+        entry = STATIC_FILES.get(path)
         if entry:
             filename, content_type = entry
             try:
