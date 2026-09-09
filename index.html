@@ -271,6 +271,7 @@
   const SHUTDOWN_RE = /(잘\s*자|잘가|시스템\s*종료|자비스\s*(꺼|끝|안녕))/i;
   const PC_TASK_RE = /^(컴퓨터|피씨|pc)\s*[,야아]?\s*(.+)/i;
   const CONFIRM_RE = /^(응|네|그래|시작|진행|실행|어|오케이|ok|yes)/i;
+  const DENY_RE = /^(아니|안돼|안\s*해|취소|그만|잠깐|스톱|stop|no)/i;
 
   try {
     wakeMode = localStorage.getItem('jarvis-wake') === '1';
@@ -431,14 +432,8 @@
     return true;
   }
 
-  async function tryPcTask(text) {
-    const m = text.match(PC_TASK_RE);
-    if (!m) return false;
-    const instruction = m[2].trim();
-    if (!instruction) return false;
-
+  async function runPcTaskFlow(instruction) {
     processing = true;
-    abortRecognition();
     addLog('jarvis', `"${instruction}" 작업을 시작할까요?`);
     await speak(`${instruction} 작업을 시작할까요?`);
 
@@ -456,7 +451,7 @@
       await speak('작업을 취소했습니다.');
       processing = false;
       if (isActive) startListening();
-      return true;
+      return;
     }
 
     processing = true;
@@ -479,6 +474,15 @@
     }
     processing = false;
     if (isActive) startListening();
+  }
+
+  async function tryPcTask(text) {
+    const m = text.match(PC_TASK_RE);
+    if (!m) return false;
+    const instruction = m[2].trim();
+    if (!instruction) return false;
+    abortRecognition();
+    await runPcTaskFlow(instruction);
     return true;
   }
 
@@ -500,6 +504,15 @@
       });
       const data = await r.json();
       if (data.error) throw new Error(data.error);
+      if (data.action === 'pc_task') {
+        // Claude decided this needs real local work, not a spoken answer -
+        // drop it from the chat history and hand off to the confirm flow
+        // instead (same one the "컴퓨터, ..." shortcut uses).
+        messages.pop();
+        processing = false;
+        await runPcTaskFlow(data.instruction);
+        return;
+      }
       const reply = data.reply;
       messages.push({ role: 'assistant', content: reply });
       addLog('jarvis', reply);
@@ -545,13 +558,24 @@
         // (see speak()) - this is almost always our own speaker echo
         if (Date.now() < micDeafUntil) return;
 
-        // A PC-task confirmation is pending - the next thing heard is a
-        // yes/no answer, not a new command
+        // A PC-task confirmation is pending - the next thing heard should be
+        // a yes/no answer. Anything ambiguous (noise, a stray "자비스", a
+        // half-caught word) is ignored rather than treated as "no" - only a
+        // clear yes or a clear no actually settles it, everything else just
+        // keeps the confirmation window open.
         if (pendingTaskResolve) {
-          const resolve = pendingTaskResolve;
-          addLog('user', text);
-          abortRecognition();
-          resolve(CONFIRM_RE.test(text.trim()));
+          const t = text.trim();
+          if (CONFIRM_RE.test(t)) {
+            const resolve = pendingTaskResolve;
+            addLog('user', text);
+            abortRecognition();
+            resolve(true);
+          } else if (DENY_RE.test(t)) {
+            const resolve = pendingTaskResolve;
+            addLog('user', text);
+            abortRecognition();
+            resolve(false);
+          }
           return;
         }
 

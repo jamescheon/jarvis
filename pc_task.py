@@ -5,6 +5,20 @@ from pathlib import Path
 
 CLAUDE_CLI = shutil.which("claude") or "claude"
 WORK_DIR = Path.home()
+
+REQUEST_TOOL = {
+    "name": "request_pc_task",
+    "description": "사용자가 이 컴퓨터에서 실제로 파일을 만들거나 열거나, 프로그램을 실행하거나, "
+    "명령을 실행하는 등 구체적인 작업을 원할 때 사용합니다. 정보를 묻는 질문이나 "
+    "일반 대화에는 사용하지 마세요.",
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "instruction": {"type": "string", "description": "사용자가 요청한 작업 내용, 그대로"},
+        },
+        "required": ["instruction"],
+    },
+}
 # Suppress the console window the npm-shimmed `claude.cmd` -> node.exe chain
 # otherwise pops up on Windows, which steals focus from the browser tab and
 # can interrupt an active speech-recognition session.

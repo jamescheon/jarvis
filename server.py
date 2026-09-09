@@ -26,16 +26,21 @@ SYSTEM_PROMPT = """당신은 아이언맨의 자비스(J.A.R.V.I.S.)입니다.
 - 사용자를 "선생님"이라고 부릅니다.
 - 이모지나 마크다운 기호(**, #, - 등)는 절대 사용하지 않습니다 (음성 출력이므로).
 - 최신 뉴스, 날씨, 실시간 정보 등 알고 있는 지식만으로 답할 수 없는 질문은 웹 검색을 사용해서 답합니다.
-- 네이버 검색량/검색 순위를 물어보면 naver_search_volume 도구로 조회해서 답합니다."""
+- 네이버 검색량/검색 순위를 물어보면 naver_search_volume 도구로 조회해서 답합니다.
+- 이 컴퓨터에서 실제로 파일을 만들거나 프로그램을 실행하는 등 구체적인 작업을
+  요청하면 request_pc_task 도구를 사용합니다."""
 
 SEARCH_TOOL = {"type": "web_search_20250305", "name": "web_search", "max_uses": 3}
-TOOLS = [SEARCH_TOOL, naver_ads.VOLUME_TOOL]
+TOOLS = [SEARCH_TOOL, naver_ads.VOLUME_TOOL, pc_task.REQUEST_TOOL]
 TOOL_HANDLERS = {"naver_search_volume": lambda inp: naver_ads.search_volume(inp.get("keyword", ""))}
 
 
 def run_with_tools(messages):
     # web_search resolves itself server-side; naver_search_volume is a
     # client-side tool, so loop until Claude stops asking for one.
+    # request_pc_task has no handler here at all - it's a signal for the
+    # caller to hand off to the confirm-then-execute flow, not something to
+    # resolve and continue the conversation with.
     for _ in range(3):
         resp = client.messages.create(
             model="claude-sonnet-4-5",
@@ -45,6 +50,8 @@ def run_with_tools(messages):
             tools=TOOLS,
         )
         if resp.stop_reason != "tool_use":
+            return resp
+        if any(b.type == "tool_use" and b.name == "request_pc_task" for b in resp.content):
             return resp
         messages.append({"role": "assistant", "content": resp.content})
         tool_results = [
@@ -56,6 +63,13 @@ def run_with_tools(messages):
             return resp
         messages.append({"role": "user", "content": tool_results})
     return resp
+
+
+def find_pc_task_request(resp):
+    return next(
+        (b for b in resp.content if b.type == "tool_use" and b.name == "request_pc_task"),
+        None,
+    )
 
 
 def extract_reply(resp):
@@ -121,6 +135,14 @@ class JarvisHandler(BaseHTTPRequestHandler):
         messages = payload.get("messages", [])
         try:
             resp = run_with_tools(messages)
+            pc_request = find_pc_task_request(resp)
+            if pc_request:
+                out = json.dumps(
+                    {"action": "pc_task", "instruction": pc_request.input.get("instruction", "")},
+                    ensure_ascii=False,
+                ).encode("utf-8")
+                self._send(200, out, "application/json; charset=utf-8")
+                return
             reply = extract_reply(resp)
             out = json.dumps({"reply": reply}, ensure_ascii=False).encode("utf-8")
             self._send(200, out, "application/json; charset=utf-8")
