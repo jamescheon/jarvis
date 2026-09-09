@@ -7,6 +7,7 @@ from pathlib import Path
 from anthropic import Anthropic
 
 import naver_ads
+import pc_task
 
 BASE_DIR = Path(__file__).parent
 INDEX_FILE = BASE_DIR / "index.html"
@@ -95,7 +96,8 @@ class JarvisHandler(BaseHTTPRequestHandler):
         self._send(404, b"Not Found", "text/plain; charset=utf-8")
 
     def do_POST(self):
-        if self.path != "/api/chat":
+        path = self.path.split("?", 1)[0]
+        if path not in ("/api/chat", "/api/pc-task"):
             self._send(404, b"Not Found", "text/plain; charset=utf-8")
             return
 
@@ -104,6 +106,16 @@ class JarvisHandler(BaseHTTPRequestHandler):
             payload = json.loads(self.rfile.read(length) or b"{}")
         except json.JSONDecodeError:
             self._send(400, b'{"error":"invalid json"}', "application/json")
+            return
+
+        if path == "/api/pc-task":
+            instruction = (payload.get("instruction") or "").strip()
+            if not instruction:
+                self._send(400, b'{"error":"instruction is required"}', "application/json")
+                return
+            result = pc_task.run_task(instruction)
+            out = json.dumps({"result": result}, ensure_ascii=False).encode("utf-8")
+            self._send(200, out, "application/json; charset=utf-8")
             return
 
         messages = payload.get("messages", [])

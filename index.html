@@ -233,7 +233,8 @@
 <div id="hint">
   ※ Chrome / Edge 브라우저에서 최적 동작<br>
   ※ 마이크 권한을 허용해주세요<br>
-  ※ 웨이크워드 ON: "자비스" 라고 부르면 응답
+  ※ 웨이크워드 ON: "자비스" 라고 부르면 응답<br>
+  ※ "컴퓨터, OOO 해줘" : 이 컴퓨터에서 실제 작업 실행 (확인 후 진행, 로컬 실행 시에만 동작)
 </div>
 
 <div id="log"></div>
@@ -264,9 +265,12 @@
   let wakeLock = null;
   let audioCtx = null;
   let messages = [];
+  let pendingTaskResolve = null;
 
   const WAKE_RE = /(자비스|재비스|jarvis)\s*[야가는]?[,.!?\s]*(.*)/i;
   const SHUTDOWN_RE = /(잘\s*자|잘가|시스템\s*종료|자비스\s*(꺼|끝|안녕))/i;
+  const PC_TASK_RE = /^(컴퓨터|피씨|pc)\s*[,야아]?\s*(.+)/i;
+  const CONFIRM_RE = /^(응|네|그래|시작|진행|실행|어|오케이|ok|yes)/i;
 
   try {
     wakeMode = localStorage.getItem('jarvis-wake') === '1';
@@ -427,8 +431,60 @@
     return true;
   }
 
+  async function tryPcTask(text) {
+    const m = text.match(PC_TASK_RE);
+    if (!m) return false;
+    const instruction = m[2].trim();
+    if (!instruction) return false;
+
+    processing = true;
+    abortRecognition();
+    addLog('jarvis', `"${instruction}" 작업을 시작할까요?`);
+    await speak(`${instruction} 작업을 시작할까요?`);
+
+    const confirmed = await new Promise((resolve) => {
+      const settle = (val) => { pendingTaskResolve = null; resolve(val); };
+      pendingTaskResolve = settle;
+      setTimeout(() => { if (pendingTaskResolve === settle) settle(false); }, 8000);
+      processing = false;
+      startListening();
+    });
+
+    if (!confirmed) {
+      processing = true;
+      addLog('jarvis', '작업을 취소했습니다.');
+      await speak('작업을 취소했습니다.');
+      processing = false;
+      if (isActive) startListening();
+      return true;
+    }
+
+    processing = true;
+    addLog('jarvis', '작업을 시작합니다, 대표님.');
+    await speak('작업을 시작합니다, 대표님.');
+    try {
+      const r = await fetch('/api/pc-task', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ instruction }),
+      });
+      const data = await r.json();
+      const result = data.result || data.error || '작업을 완료했습니다.';
+      addLog('jarvis', result);
+      await speak(result);
+    } catch (e) {
+      const err = '작업 실행 중 오류가 발생했습니다. 이 컴퓨터에서 로컬로 실행 중인지 확인해주세요.';
+      addLog('jarvis', err);
+      await speak(err);
+    }
+    processing = false;
+    if (isActive) startListening();
+    return true;
+  }
+
   async function handleCommand(userText) {
     if (await tryAppCommand(userText)) return;
+    if (await tryPcTask(userText)) return;
     await sendToClaude(userText);
   }
 
@@ -488,6 +544,16 @@
         // Ignore anything heard while still inside the post-TTS deaf window
         // (see speak()) - this is almost always our own speaker echo
         if (Date.now() < micDeafUntil) return;
+
+        // A PC-task confirmation is pending - the next thing heard is a
+        // yes/no answer, not a new command
+        if (pendingTaskResolve) {
+          const resolve = pendingTaskResolve;
+          addLog('user', text);
+          abortRecognition();
+          resolve(CONFIRM_RE.test(text.trim()));
+          return;
+        }
 
         // Shutdown: works in any mode
         if (SHUTDOWN_RE.test(text)) {
