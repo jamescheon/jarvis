@@ -1,9 +1,14 @@
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 CLAUDE_CLI = shutil.which("claude") or "claude"
 WORK_DIR = Path.home()
+# Suppress the console window the npm-shimmed `claude.cmd` -> node.exe chain
+# otherwise pops up on Windows, which steals focus from the browser tab and
+# can interrupt an active speech-recognition session.
+CREATIONFLAGS = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
 
 
 def run_task(instruction: str) -> str:
@@ -25,6 +30,7 @@ def run_task(instruction: str) -> str:
             encoding="utf-8",
             errors="replace",
             timeout=180,
+            creationflags=CREATIONFLAGS,
         )
     except subprocess.TimeoutExpired:
         return "작업이 시간 초과됐습니다."
