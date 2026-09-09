@@ -5,6 +5,13 @@ from pathlib import Path
 
 CLAUDE_CLI = shutil.which("claude") or "claude"
 WORK_DIR = Path.home()
+SYSTEM_PROMPT_APPEND = (
+    "당신은 이 컴퓨터에서 사용자의 요청을 직접 실행하는 로컬 자동화 에이전트입니다. "
+    "Bash 도구로 프로그램 실행, `start` 명령으로 URL이나 앱 열기(예: 브라우저에서 "
+    "검색), 파일 생성/수정 등 무엇이든 직접 수행할 수 있습니다. 사용자에게 방법을 "
+    "안내만 하지 말고, 실제로 작업을 완료한 뒤 결과를 한두 문장으로 요약해서 "
+    "보고하세요."
+)
 
 REQUEST_TOOL = {
     "name": "request_pc_task",
@@ -37,6 +44,7 @@ def run_task(instruction: str) -> str:
                 "--permission-mode", "bypassPermissions",
                 "--no-session-persistence",
                 "--max-budget-usd", "2",
+                "--append-system-prompt", SYSTEM_PROMPT_APPEND,
             ],
             cwd=str(WORK_DIR),
             capture_output=True,
