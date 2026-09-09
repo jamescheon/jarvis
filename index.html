@@ -322,7 +322,7 @@
   // everything heard for a fixed period after we finish speaking.
   let micDeafUntil = 0;
 
-  function speak(text, lang = 'ko-KR') {
+  function speak(text, lang = 'ko-KR', postReopenDeafMs = 1200) {
     return new Promise((resolve) => {
       setState('speaking', '응답 중');
       const utter = new SpeechSynthesisUtterance(text);
@@ -333,9 +333,12 @@
       const v = pickVoice(lang.split('-')[0].toLowerCase());
       if (v) utter.voice = v;
       const finish = () => {
-        // Mic stays off another 700ms, then ignores results for 1.2s more
-        // once it reopens - covers speaker/room echo decay on phones.
-        micDeafUntil = Date.now() + 700 + 1200;
+        // Mic stays off another 700ms, then ignores results for
+        // postReopenDeafMs more once it reopens - covers speaker/room echo
+        // decay on phones. Callers expecting an immediate reply (like a
+        // yes/no confirmation) can pass a much smaller value so a quick
+        // answer doesn't get swallowed.
+        micDeafUntil = Date.now() + 700 + postReopenDeafMs;
         setTimeout(resolve, 700);
       };
       utter.onend = finish;
@@ -435,7 +438,9 @@
   async function runPcTaskFlow(instruction) {
     processing = true;
     addLog('jarvis', `"${instruction}" 작업을 시작할까요?`);
-    await speak(`${instruction} 작업을 시작할까요?`);
+    // Short deaf window here - people answer a yes/no question almost
+    // immediately, unlike a general command where a pause is natural.
+    await speak(`${instruction} 작업을 시작할까요?`, 'ko-KR', 300);
 
     const confirmed = await new Promise((resolve) => {
       const settle = (val) => { pendingTaskResolve = null; resolve(val); };
