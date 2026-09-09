@@ -632,6 +632,18 @@
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('/sw.js').catch(() => {});
   }
+
+  // ?auto=1 - launched from a startup script: force wake mode and start
+  // the system automatically. Still needs mic permission already granted
+  // from an earlier manual run (browsers won't silently prompt on load).
+  if (new URLSearchParams(location.search).get('auto') === '1') {
+    if (!wakeMode) {
+      wakeMode = true;
+      try { localStorage.setItem('jarvis-wake', '1'); } catch(_) {}
+      updateWakeUI();
+    }
+    setTimeout(() => toggle.click(), 300);
+  }
 })();
 </script>
 </body>
