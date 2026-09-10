@@ -102,6 +102,11 @@ class handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         path = self.path.split("?", 1)[0]
+        if path == "/api/debug-local-search":
+            result = naver_search.local_search("원주 카페")
+            body = result.encode("utf-8")
+            self._send(200, body, "text/plain; charset=utf-8")
+            return
         entry = STATIC_FILES.get(path)
         if entry:
             filename, content_type = entry
