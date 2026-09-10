@@ -403,12 +403,20 @@
   };
   const OPEN_APP_RE = /(네이버\s*지도|유튜브|스포티파이|카카오톡|인스타그램|넷플릭스|지도|네이버)\s*(?:좀)?\s*(?:열어|틀어|실행해|켜)\s*(?:줘|줄래|주세요)?\s*$/;
 
+  // Chrome silently blocks window.open() when it isn't called from a direct
+  // click/tap - a voice command doesn't count, so this fails constantly
+  // unless the user has explicitly allowed pop-ups for this site. Chrome
+  // returns null instead of a window handle when it blocks one; use that to
+  // tell the truth instead of claiming success.
+  function openWindow(url) {
+    return !!window.open(url, '_blank');
+  }
+
   function openApp(name) {
     const target = APP_LINKS[name];
-    if (!target) return false;
+    if (!target) return 'not_found';
     if (!target.scheme) {
-      window.open(target.web, '_blank');
-      return true;
+      return openWindow(target.web) ? 'ok' : 'blocked';
     }
     const fallback = setTimeout(() => {
       if (document.visibilityState === 'visible') window.open(target.web, '_blank');
@@ -420,17 +428,24 @@
       }
     });
     window.location.href = target.scheme;
-    return true;
+    return 'ok';
   }
 
   async function tryAppCommand(text) {
     const m = text.match(OPEN_APP_RE);
     if (!m) return false;
     const name = m[1].replace(/\s+/g, '');
-    if (!openApp(name)) return false;
+    const result = openApp(name);
+    if (result === 'not_found') return false;
     processing = true;
-    addLog('jarvis', `${name} 실행합니다, 선생님.`);
-    await speak(`${name} 실행합니다, 선생님.`);
+    if (result === 'blocked') {
+      const msg = '팝업이 차단돼서 열지 못했습니다. 크롬 설정에서 팝업을 허용해주세요.';
+      addLog('jarvis', msg);
+      await speak(msg);
+    } else {
+      addLog('jarvis', `${name} 실행합니다, 선생님.`);
+      await speak(`${name} 실행합니다, 선생님.`);
+    }
     processing = false;
     if (isActive) startListening();
     return true;
@@ -451,10 +466,16 @@
     if (!m) return false;
     const keyword = cleanSearchKeyword(m[1]);
     if (!keyword) return false;
-    window.open('https://search.naver.com/search.naver?query=' + encodeURIComponent(keyword), '_blank');
+    const opened = openWindow('https://search.naver.com/search.naver?query=' + encodeURIComponent(keyword));
     processing = true;
-    addLog('jarvis', `"${keyword}" 검색 결과를 열었습니다.`);
-    await speak(`${keyword} 검색 결과를 열었습니다.`);
+    if (opened) {
+      addLog('jarvis', `"${keyword}" 검색 결과를 열었습니다.`);
+      await speak(`${keyword} 검색 결과를 열었습니다.`);
+    } else {
+      const msg = '팝업이 차단돼서 검색 결과를 열지 못했습니다. 크롬 설정에서 팝업을 허용해주세요.';
+      addLog('jarvis', msg);
+      await speak(msg);
+    }
     processing = false;
     if (isActive) startListening();
     return true;
