@@ -249,21 +249,12 @@
   // Known male neural voice names, by language - browsers/OSes expose
   // whatever voice packs are installed under names like "Microsoft InJoon
   // Online (Natural) - Korean (Korea)", so match on a substring.
-  const MALE_VOICE_HINTS = {
-    ko: ['injoon', 'bongjin', 'gookmin', 'hyunsu'],
-    en: ['guy', 'davis', 'tony', 'david', 'male'],
-  };
-
+  // Just the most natural-sounding voice available for the language - no
+  // gender preference, so every line (Korean or the odd English phrase)
+  // uses the same voice instead of jarring between two different ones.
   function pickVoice(langPrefix) {
     const voices = speechSynthesis.getVoices().filter(v => v.lang.toLowerCase().startsWith(langPrefix));
-    const hints = MALE_VOICE_HINTS[langPrefix] || [];
-    const isMale = (v) => hints.some(h => v.name.toLowerCase().includes(h));
-    const isNatural = (v) => /neural|natural/i.test(v.name);
-    return voices.find(v => isMale(v) && isNatural(v))
-        || voices.find(v => isMale(v))
-        || voices.find(isNatural)
-        || voices[0]
-        || null;
+    return voices.find(v => /neural|natural/i.test(v.name)) || voices[0] || null;
   }
 
   // Deaf window: while the mic is reopening after TTS, real acoustic echo
