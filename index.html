@@ -234,7 +234,8 @@
   ※ Chrome / Edge 브라우저에서 최적 동작<br>
   ※ 마이크 권한을 허용해주세요<br>
   ※ 웨이크워드 ON: "자비스" 라고 부르면 응답<br>
-  ※ "컴퓨터, OOO 해줘" : 이 컴퓨터에서 실제 작업 실행 (확인 후 진행, 로컬 실행 시에만 동작)
+  ※ "컴퓨터, OOO 해줘" : 이 컴퓨터에서 실제 작업 실행 (확인 후 진행, 로컬 실행 시에만 동작)<br>
+  ※ "OOO 검색해줘" : 확인 없이 바로 네이버 검색 결과 열기
 </div>
 
 <div id="log"></div>
@@ -435,6 +436,30 @@
     return true;
   }
 
+  // Plain web search - fast path, no confirmation, no Claude Code agent.
+  // Default engine is Naver; strips an optional site mention ("네이버에서",
+  // "크롬에서" etc) so people don't need to name a browser/site at all.
+  const SEARCH_RE = /^(.+?)\s*(?:검색|찾아)\s*(?:해\s*줘|해\s*줄래|해\s*봐|좀|줘|봐)?\s*$/i;
+  const SITE_MENTION_RE = /^(바탕\s*화면\s*)?(네이버|구글|크롬)\s*(에서|으로|로)?\s*|\s*(네이버|구글|크롬)\s*(에서|으로|로)?\s*$/gi;
+
+  function cleanSearchKeyword(s) {
+    return s.replace(SITE_MENTION_RE, '').trim();
+  }
+
+  async function trySearchCommand(text) {
+    const m = text.match(SEARCH_RE);
+    if (!m) return false;
+    const keyword = cleanSearchKeyword(m[1]);
+    if (!keyword) return false;
+    window.open('https://search.naver.com/search.naver?query=' + encodeURIComponent(keyword), '_blank');
+    processing = true;
+    addLog('jarvis', `"${keyword}" 검색 결과를 열었습니다.`);
+    await speak(`${keyword} 검색 결과를 열었습니다.`);
+    processing = false;
+    if (isActive) startListening();
+    return true;
+  }
+
   async function runPcTaskFlow(instruction) {
     processing = true;
     addLog('jarvis', `"${instruction}" 작업을 시작할까요?`);
@@ -493,6 +518,7 @@
 
   async function handleCommand(userText) {
     if (await tryAppCommand(userText)) return;
+    if (await trySearchCommand(userText)) return;
     if (await tryPcTask(userText)) return;
     await sendToClaude(userText);
   }
