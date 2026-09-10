@@ -233,7 +233,7 @@
 <div id="hint">
   ※ Chrome / Edge 브라우저에서 최적 동작<br>
   ※ 마이크 권한을 허용해주세요<br>
-  ※ 웨이크워드 ON: "자비스" 라고 부르면 응답<br>
+  ※ 웨이크워드 ON: "자비스" 라고 부르면 응답, 답변 후 10초간은 다시 안 불러도 이어서 질문 가능<br>
   ※ "컴퓨터, OOO 해줘" : 이 컴퓨터에서 실제 작업 실행 (확인 후 진행, 로컬 실행 시에만 동작)<br>
   ※ "OOO 검색해줘" : 확인 없이 바로 네이버 검색 결과 열기
 </div>
@@ -431,6 +431,24 @@
     return 'ok';
   }
 
+  // After finishing a response, don't require "자비스" again right away -
+  // stay listening for a follow-up like a real conversation, the same way
+  // the initial "Yes, sir?" prompt already does. Only in wake mode; manual
+  // mode already treats every utterance as a command with no wake word.
+  function finishTurn() {
+    processing = false;
+    if (!isActive) return;
+    if (wakeMode) {
+      awaitingCommand = true;
+      clearTimeout(commandTimeout);
+      commandTimeout = setTimeout(() => {
+        awaitingCommand = false;
+        if (isActive) setState('listening', idleStatus());
+      }, 10000);
+    }
+    startListening();
+  }
+
   async function tryAppCommand(text) {
     const m = text.match(OPEN_APP_RE);
     if (!m) return false;
@@ -446,8 +464,7 @@
       addLog('jarvis', `${name} 실행합니다, 선생님.`);
       await speak(`${name} 실행합니다, 선생님.`);
     }
-    processing = false;
-    if (isActive) startListening();
+    finishTurn();
     return true;
   }
 
@@ -476,8 +493,7 @@
       addLog('jarvis', msg);
       await speak(msg);
     }
-    processing = false;
-    if (isActive) startListening();
+    finishTurn();
     return true;
   }
 
@@ -500,8 +516,7 @@
       processing = true;
       addLog('jarvis', '작업을 취소했습니다.');
       await speak('작업을 취소했습니다.');
-      processing = false;
-      if (isActive) startListening();
+      finishTurn();
       return;
     }
 
@@ -523,8 +538,7 @@
       addLog('jarvis', err);
       await speak(err);
     }
-    processing = false;
-    if (isActive) startListening();
+    finishTurn();
   }
 
   async function tryPcTask(text) {
@@ -574,8 +588,7 @@
       addLog('jarvis', err + ' (' + e.message + ')');
       await speak(err);
     }
-    processing = false;
-    if (isActive) startListening();
+    finishTurn();
   }
 
   function abortRecognition() {
