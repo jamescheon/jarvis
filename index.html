@@ -169,41 +169,6 @@
     text-shadow: 0 0 6px rgba(125, 255, 179, 0.5);
     box-shadow: 0 0 15px rgba(125, 255, 179, 0.2);
   }
-  #log {
-    width: 100%;
-    max-width: 640px;
-    margin-top: 30px;
-    font-family: 'Consolas', 'Malgun Gothic', sans-serif;
-    font-size: 14px;
-    line-height: 1.6;
-  }
-  .msg {
-    margin: 10px 0;
-    padding: 10px 16px;
-    border-radius: 4px;
-    animation: fade-in 0.3s ease-out;
-  }
-  @keyframes fade-in {
-    from { opacity: 0; transform: translateY(6px); }
-    to { opacity: 1; transform: translateY(0); }
-  }
-  .msg.user {
-    background: rgba(0, 212, 255, 0.08);
-    border-left: 2px solid #00d4ff;
-    color: #a0e8ff;
-  }
-  .msg.jarvis {
-    background: rgba(255, 165, 0, 0.06);
-    border-left: 2px solid #ffa500;
-    color: #ffcc80;
-  }
-  .msg .who {
-    font-size: 10px;
-    letter-spacing: 2px;
-    opacity: 0.7;
-    margin-bottom: 4px;
-    font-family: 'Consolas', monospace;
-  }
   #hint {
     font-family: 'Consolas', monospace;
     font-size: 11px;
@@ -238,13 +203,10 @@
   ※ "OOO 검색해줘" : 확인 없이 바로 네이버 검색 결과 열기
 </div>
 
-<div id="log"></div>
-
 <script>
 (() => {
   const orb = document.getElementById('orb');
   const statusEl = document.getElementById('status');
-  const log = document.getElementById('log');
   const toggle = document.getElementById('toggle');
   const wakeToggle = document.getElementById('wake-toggle');
 
@@ -281,17 +243,8 @@
     if (text !== undefined) statusEl.textContent = text;
   }
 
-  function addLog(who, text) {
-    const div = document.createElement('div');
-    div.className = 'msg ' + who;
-    div.innerHTML = `<div class="who">${who === 'user' ? '선생님' : 'J.A.R.V.I.S.'}</div>${escapeHtml(text)}`;
-    log.appendChild(div);
-    div.scrollIntoView({ behavior: 'smooth', block: 'end' });
-  }
-
-  function escapeHtml(s) {
-    return s.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-  }
+  // Conversation transcript intentionally not rendered on screen.
+  function addLog() {}
 
   // Known male neural voice names, by language - browsers/OSes expose
   // whatever voice packs are installed under names like "Microsoft InJoon
@@ -325,8 +278,10 @@
       setState('speaking', '응답 중');
       const utter = new SpeechSynthesisUtterance(text);
       utter.lang = lang;
-      utter.rate = 1.05;
-      utter.pitch = 0.85;
+      // Slightly slower and a touch higher than before for a calmer,
+      // softer delivery - full pitch drop reads as gruff/robotic instead.
+      utter.rate = 0.95;
+      utter.pitch = 0.92;
       utter.volume = 1.0;
       const v = pickVoice(lang.split('-')[0].toLowerCase());
       if (v) utter.voice = v;
