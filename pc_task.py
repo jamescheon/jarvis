@@ -37,15 +37,23 @@ def run_task(instruction: str) -> str:
     headless, scoped to the user's home folder. Local-only - never wired
     into the Vercel deployment, which has no access to this machine."""
     try:
+        # Pass the instruction via stdin instead of as a CLI argument. On
+        # Windows, `claude` resolves to a npm .cmd shim, which Python's
+        # subprocess launches through a second cmd.exe pass - that pass
+        # re-parses quoting, and instructions containing literal double
+        # quotes (very common - "file.xlsx", column names, etc) were
+        # getting truncated at the wrong point. Stdin bypasses argv
+        # parsing entirely, so no amount of embedded quoting can break it.
         proc = subprocess.run(
             [
-                CLAUDE_CLI, "-p", instruction,
+                CLAUDE_CLI, "-p",
                 "--output-format", "text",
                 "--permission-mode", "bypassPermissions",
                 "--no-session-persistence",
                 "--max-budget-usd", "2",
                 "--append-system-prompt", SYSTEM_PROMPT_APPEND,
             ],
+            input=instruction,
             cwd=str(WORK_DIR),
             capture_output=True,
             text=True,
