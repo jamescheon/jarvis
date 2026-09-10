@@ -29,14 +29,16 @@ def local_search(query: str) -> str:
     if not (CLIENT_ID and CLIENT_SECRET):
         return "네이버 검색 API 키가 설정되지 않았습니다."
 
-    url = "https://openapi.naver.com/v1/search/local.json?" + urllib.parse.urlencode(
-        {"query": query, "display": 5, "sort": "comment"}
+    # This app was registered through NAVER API HUB (on NCP), not the old
+    # developers.naver.com portal - different gateway, different headers.
+    url = "https://naverapihub.apigw.ntruss.com/search/v1/local?" + urllib.parse.urlencode(
+        {"query": query, "display": 5, "sort": "comment", "format": "json"}
     )
     req = urllib.request.Request(
         url,
         headers={
-            "X-Naver-Client-Id": CLIENT_ID,
-            "X-Naver-Client-Secret": CLIENT_SECRET,
+            "X-NCP-APIGW-API-KEY-ID": CLIENT_ID,
+            "X-NCP-APIGW-API-KEY": CLIENT_SECRET,
         },
     )
     try:
