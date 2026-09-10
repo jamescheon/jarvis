@@ -6,6 +6,7 @@ import re
 from anthropic import Anthropic
 
 import naver_ads
+import naver_search
 import pc_task
 
 BASE_DIR = Path(__file__).parent.parent
@@ -25,12 +26,17 @@ SYSTEM_PROMPT = """당신은 아이언맨의 자비스(J.A.R.V.I.S.)입니다.
 - 이모지나 마크다운 기호(**, #, - 등)는 절대 사용하지 않습니다 (음성 출력이므로).
 - 최신 뉴스, 날씨, 실시간 정보 등 알고 있는 지식만으로 답할 수 없는 질문은 웹 검색을 사용해서 답합니다.
 - 네이버 검색량/검색 순위를 물어보면 naver_search_volume 도구로 조회해서 답합니다.
+- 특정 지역의 인기 카페/맛집/업체를 물어보면 naver_local_search 도구로 실제
+  업체 목록(리뷰 순)을 조회해서 답합니다.
 - 이 컴퓨터에서 실제로 파일을 만들거나 프로그램을 실행하는 등 구체적인 작업을
   요청하면 request_pc_task 도구를 사용합니다."""
 
 SEARCH_TOOL = {"type": "web_search_20250305", "name": "web_search", "max_uses": 3}
-TOOLS = [SEARCH_TOOL, naver_ads.VOLUME_TOOL, pc_task.REQUEST_TOOL]
-TOOL_HANDLERS = {"naver_search_volume": lambda inp: naver_ads.search_volume(inp.get("keyword", ""))}
+TOOLS = [SEARCH_TOOL, naver_ads.VOLUME_TOOL, naver_search.LOCAL_TOOL, pc_task.REQUEST_TOOL]
+TOOL_HANDLERS = {
+    "naver_search_volume": lambda inp: naver_ads.search_volume(inp.get("keyword", "")),
+    "naver_local_search": lambda inp: naver_search.local_search(inp.get("query", "")),
+}
 
 
 def run_with_tools(client, messages):
