@@ -234,7 +234,7 @@
   ※ Chrome / Edge 브라우저에서 최적 동작<br>
   ※ 마이크 권한을 허용해주세요<br>
   ※ 웨이크워드 ON: "자비스" 라고 부르면 응답, 답변 후 10초간은 다시 안 불러도 이어서 질문 가능<br>
-  ※ "컴퓨터, OOO 해줘" : 이 컴퓨터에서 실제 작업 실행 (확인 후 진행, 로컬 실행 시에만 동작)<br>
+  ※ "컴퓨터, OOO 해줘" : 이 컴퓨터에서 실제 작업 즉시 실행 후 결과 보고 (로컬 실행 시에만 동작)<br>
   ※ "OOO 검색해줘" : 확인 없이 바로 네이버 검색 결과 열기
 </div>
 
@@ -266,13 +266,10 @@
   let wakeLock = null;
   let audioCtx = null;
   let messages = [];
-  let pendingTaskResolve = null;
 
   const WAKE_RE = /(자비스|재비스|jarvis)\s*[야가는]?[,.!?\s]*(.*)/i;
   const SHUTDOWN_RE = /(잘\s*자|잘가|시스템\s*종료|자비스\s*(꺼|끝|안녕))/i;
   const PC_TASK_RE = /^(컴퓨터|피씨|pc)\s*[,야아]?\s*(.+)/i;
-  const CONFIRM_RE = /^(응|네|그래|시작|진행|실행|어|오케이|ok|yes)/i;
-  const DENY_RE = /^(아니|안돼|안\s*해|취소|그만|잠깐|스톱|stop|no)/i;
 
   try {
     wakeMode = localStorage.getItem('jarvis-wake') === '1';
@@ -498,28 +495,9 @@
   }
 
   async function runPcTaskFlow(instruction) {
-    processing = true;
-    addLog('jarvis', `"${instruction}" 작업을 시작할까요?`);
-    // Short deaf window here - people answer a yes/no question almost
-    // immediately, unlike a general command where a pause is natural.
-    await speak(`${instruction} 작업을 시작할까요?`, 'ko-KR', 300);
-
-    const confirmed = await new Promise((resolve) => {
-      const settle = (val) => { pendingTaskResolve = null; resolve(val); };
-      pendingTaskResolve = settle;
-      setTimeout(() => { if (pendingTaskResolve === settle) settle(false); }, 8000);
-      processing = false;
-      startListening();
-    });
-
-    if (!confirmed) {
-      processing = true;
-      addLog('jarvis', '작업을 취소했습니다.');
-      await speak('작업을 취소했습니다.');
-      finishTurn();
-      return;
-    }
-
+    // No confirmation step - execute immediately and report the result
+    // when done (user explicitly asked to drop the confirm-first safety
+    // guard that used to run here).
     processing = true;
     addLog('jarvis', '작업을 시작합니다, 대표님.');
     await speak('작업을 시작합니다, 대표님.');
@@ -622,27 +600,6 @@
         // Ignore anything heard while still inside the post-TTS deaf window
         // (see speak()) - this is almost always our own speaker echo
         if (Date.now() < micDeafUntil) return;
-
-        // A PC-task confirmation is pending - the next thing heard should be
-        // a yes/no answer. Anything ambiguous (noise, a stray "자비스", a
-        // half-caught word) is ignored rather than treated as "no" - only a
-        // clear yes or a clear no actually settles it, everything else just
-        // keeps the confirmation window open.
-        if (pendingTaskResolve) {
-          const t = text.trim();
-          if (CONFIRM_RE.test(t)) {
-            const resolve = pendingTaskResolve;
-            addLog('user', text);
-            abortRecognition();
-            resolve(true);
-          } else if (DENY_RE.test(t)) {
-            const resolve = pendingTaskResolve;
-            addLog('user', text);
-            abortRecognition();
-            resolve(false);
-          }
-          return;
-        }
 
         // Shutdown: works in any mode
         if (SHUTDOWN_RE.test(text)) {
