@@ -181,12 +181,17 @@
     position: fixed;
     inset: 0;
     background: rgba(0, 3, 8, 0.92);
-    display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
     gap: 16px;
     z-index: 10;
+  }
+  /* [hidden] alone loses to the ID selector's specificity, so "display:
+     flex" above would win and show the overlay even while hidden - only
+     turn flex on when it's NOT hidden. */
+  #camera-overlay:not([hidden]) {
+    display: flex;
   }
   #camera-video {
     width: min(80vw, 420px);
