@@ -32,23 +32,30 @@ SYSTEM_PROMPT = """당신은 아이언맨의 자비스(J.A.R.V.I.S.)입니다.
 - 네이버 검색량/검색 순위를 물어보면 naver_search_volume 도구로 조회해서 답합니다.
 - 특정 지역의 인기 카페/맛집/업체를 물어보면 naver_local_search 도구로 실제
   업체 목록(리뷰 순)을 조회해서 답합니다.
+- 헤어스타일 등을 추천할 때는 리프컷, 허쉬컷처럼 구체적인 스타일 명칭으로
+  말하고, naver_image_search 도구로 추천한 스타일마다 참고 사진을 찾아
+  보여줍니다. 이미지는 화면에 별도로 표시되니 답변 텍스트에
+  마크다운 이미지 문법이나 이미지 URL을 직접 적지 않습니다.
 - 이 컴퓨터에서 실제로 파일을 만들거나 프로그램을 실행하는 등 구체적인 작업을
   요청하면 request_pc_task 도구를 사용합니다."""
 
 SEARCH_TOOL = {"type": "web_search_20250305", "name": "web_search", "max_uses": 3}
-TOOLS = [SEARCH_TOOL, naver_ads.VOLUME_TOOL, naver_search.LOCAL_TOOL, pc_task.REQUEST_TOOL]
+TOOLS = [SEARCH_TOOL, naver_ads.VOLUME_TOOL, naver_search.LOCAL_TOOL, naver_search.IMAGE_TOOL, pc_task.REQUEST_TOOL]
 TOOL_HANDLERS = {
     "naver_search_volume": lambda inp: naver_ads.search_volume(inp.get("keyword", "")),
     "naver_local_search": lambda inp: naver_search.local_search(inp.get("query", "")),
+    "naver_image_search": lambda inp: naver_search.image_search(inp.get("query", "")),
 }
 
 
 def run_with_tools(messages):
-    # web_search resolves itself server-side; naver_search_volume is a
-    # client-side tool, so loop until Claude stops asking for one.
-    # request_pc_task has no handler here at all - it's a signal for the
-    # caller to hand off to the confirm-then-execute flow, not something to
-    # resolve and continue the conversation with.
+    # web_search resolves itself server-side; naver_search_volume/local
+    # search/image search are client-side, so loop until Claude stops
+    # asking for one. request_pc_task has no handler here at all - it's a
+    # signal for the caller to hand off to the confirm-then-execute flow.
+    # Any image URLs found along the way are collected separately so the
+    # caller can show them - they're not part of the spoken reply text.
+    images = []
     for _ in range(3):
         resp = client.messages.create(
             model="claude-sonnet-4-5",
@@ -58,19 +65,25 @@ def run_with_tools(messages):
             tools=TOOLS,
         )
         if resp.stop_reason != "tool_use":
-            return resp
+            return resp, images
         if any(b.type == "tool_use" and b.name == "request_pc_task" for b in resp.content):
-            return resp
+            return resp, images
         messages.append({"role": "assistant", "content": resp.content})
-        tool_results = [
-            {"type": "tool_result", "tool_use_id": block.id, "content": TOOL_HANDLERS[block.name](block.input)}
-            for block in resp.content
-            if block.type == "tool_use" and block.name in TOOL_HANDLERS
-        ]
+        tool_results = []
+        for block in resp.content:
+            if block.type != "tool_use" or block.name not in TOOL_HANDLERS:
+                continue
+            result_text = TOOL_HANDLERS[block.name](block.input)
+            if block.name == "naver_image_search":
+                try:
+                    images.extend(item["link"] for item in json.loads(result_text) if item.get("link"))
+                except (json.JSONDecodeError, TypeError):
+                    pass
+            tool_results.append({"type": "tool_result", "tool_use_id": block.id, "content": result_text})
         if not tool_results:
-            return resp
+            return resp, images
         messages.append({"role": "user", "content": tool_results})
-    return resp
+    return resp, images
 
 
 def find_pc_task_request(resp):
@@ -85,6 +98,9 @@ def extract_reply(resp):
     # web_search citations leave cite-tag markup in the response text -
     # strip it, this is spoken aloud, not rendered as a web page.
     text = re.sub(r'</?cite[^>]*>?', ' ', text)
+    # Images are shown separately by the UI - strip any markdown image
+    # syntax Claude includes inline, it would just be read aloud as noise.
+    text = re.sub(r'!\[[^\]]*\]\([^)]*\)', ' ', text)
     return re.sub(r'\s+', ' ', text).strip()
 
 
@@ -142,7 +158,7 @@ class JarvisHandler(BaseHTTPRequestHandler):
 
         messages = payload.get("messages", [])
         try:
-            resp = run_with_tools(messages)
+            resp, images = run_with_tools(messages)
             pc_request = find_pc_task_request(resp)
             if pc_request:
                 out = json.dumps(
@@ -152,7 +168,7 @@ class JarvisHandler(BaseHTTPRequestHandler):
                 self._send(200, out, "application/json; charset=utf-8")
                 return
             reply = extract_reply(resp)
-            out = json.dumps({"reply": reply}, ensure_ascii=False).encode("utf-8")
+            out = json.dumps({"reply": reply, "images": images[:3]}, ensure_ascii=False).encode("utf-8")
             self._send(200, out, "application/json; charset=utf-8")
         except Exception as exc:
             err = json.dumps({"error": str(exc)}, ensure_ascii=False).encode("utf-8")
