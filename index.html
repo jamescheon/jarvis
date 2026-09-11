@@ -177,6 +177,30 @@
     text-align: center;
     line-height: 1.6;
   }
+  #camera-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 3, 8, 0.92);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    z-index: 10;
+  }
+  #camera-video {
+    width: min(80vw, 420px);
+    border-radius: 12px;
+    border: 2px solid #00d4ff;
+    box-shadow: 0 0 40px rgba(0, 212, 255, 0.5);
+    transform: scaleX(-1);
+  }
+  #camera-caption {
+    font-family: 'Consolas', monospace;
+    letter-spacing: 2px;
+    color: #7ee8fa;
+    text-shadow: 0 0 10px rgba(0, 212, 255, 0.6);
+  }
 </style>
 </head>
 <body>
@@ -200,8 +224,15 @@
   ※ 마이크 권한을 허용해주세요<br>
   ※ 웨이크워드 ON: "자비스" 라고 부르면 응답, 답변 후 10초간은 다시 안 불러도 이어서 질문 가능<br>
   ※ "컴퓨터, OOO 해줘" : 이 컴퓨터에서 실제 작업 즉시 실행 후 결과 보고 (로컬 실행 시에만 동작)<br>
-  ※ "OOO 검색해줘" : 확인 없이 바로 네이버 검색 결과 열기
+  ※ "OOO 검색해줘" : 확인 없이 바로 네이버 검색 결과 열기<br>
+  ※ "얼굴형 보고 헤어스타일 추천해줘" : 카메라로 촬영 후 분석 (사진은 저장하지 않음)
 </div>
+
+<div id="camera-overlay" hidden>
+  <video id="camera-video" autoplay playsinline muted></video>
+  <div id="camera-caption">정면을 봐주세요...</div>
+</div>
+<canvas id="camera-canvas" hidden></canvas>
 
 <script>
 (() => {
@@ -475,9 +506,87 @@
     return true;
   }
 
+  // Camera-based face-shape / hairstyle analysis. Captures one frame,
+  // sends it to Claude for a single one-off vision request, then discards
+  // it - never stored, never kept in the ongoing conversation history.
+  const FACE_RE = /(얼굴형|헤어\s*스타일).*(추천|분석|봐\s*줘|알려)/i;
+
+  async function captureFacePhoto() {
+    const overlay = document.getElementById('camera-overlay');
+    const video = document.getElementById('camera-video');
+    const canvas = document.getElementById('camera-canvas');
+    let stream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' } });
+    } catch (e) {
+      return null;
+    }
+    overlay.hidden = false;
+    video.srcObject = stream;
+    await video.play();
+    await new Promise((r) => setTimeout(r, 2500)); // let them get into frame
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    canvas.getContext('2d').drawImage(video, 0, 0);
+    stream.getTracks().forEach((t) => t.stop());
+    video.srcObject = null;
+    overlay.hidden = true;
+    return canvas.toDataURL('image/jpeg', 0.85).split(',')[1];
+  }
+
+  async function tryFaceAnalysis(text) {
+    if (!FACE_RE.test(text)) return false;
+    processing = true;
+    abortRecognition();
+    addLog('jarvis', '카메라를 켤게요, 정면을 봐주세요.');
+    await speak('카메라를 켤게요, 정면을 봐주세요.');
+
+    const imageB64 = await captureFacePhoto();
+    if (!imageB64) {
+      const err = '카메라를 사용할 수 없습니다. 브라우저 카메라 권한을 확인해주세요.';
+      addLog('jarvis', err);
+      await speak(err);
+      finishTurn();
+      return true;
+    }
+
+    try {
+      const visionMessages = [
+        ...messages,
+        {
+          role: 'user',
+          content: [
+            { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: imageB64 } },
+            { type: 'text', text: '지금 촬영한 제 얼굴 사진을 보고 얼굴형을 판단해서 어울리는 헤어스타일을 추천해줘.' },
+          ],
+        },
+      ];
+      const r = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messages: visionMessages }),
+      });
+      const data = await r.json();
+      if (data.error) throw new Error(data.error);
+      const reply = data.reply || '분석 결과를 가져오지 못했습니다.';
+      // Keep history text-only - the image itself is never persisted.
+      messages.push({ role: 'user', content: text });
+      messages.push({ role: 'assistant', content: reply });
+      addLog('jarvis', reply);
+      await speak(reply);
+    } catch (e) {
+      const err = '얼굴 분석 중 오류가 발생했습니다.';
+      addLog('jarvis', err);
+      await speak(err);
+    }
+    finishTurn();
+    return true;
+  }
+
   async function handleCommand(userText) {
     if (await tryAppCommand(userText)) return;
     if (await trySearchCommand(userText)) return;
+    if (await tryFaceAnalysis(userText)) return;
     if (await tryPcTask(userText)) return;
     await sendToClaude(userText);
   }
